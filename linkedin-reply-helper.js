@@ -1,17 +1,76 @@
 class LinkedInReplyHelper {
     constructor() {
-      this.processedReplyBoxes = new WeakSet();
-      this.MAX_RETRIES = 3;
-      this.RETRY_DELAY = 500;
-      this.observer = null; //newly added line
-      this.routeChangeHandler = null; //new added line
-  
-      // Initialize live log
-      this.loadLiveLog().then(() => {
-        createLiveLog();
-        updateLiveLog('Ready to reply', 1);
-        this.initObserver();
-      });
+        this.processedReplyBoxes = new WeakSet();
+        this.MAX_RETRIES = 3;
+        this.RETRY_DELAY = 500;
+        this.observer = null;
+        this.routeChangeHandler = null;
+        this.isOnFeed = window.location.href.includes('linkedin.com/feed');
+        this.initialized = false;
+
+        // Initialize live log and setup
+        this.initialize();
+    }
+
+    async initialize() {
+        try {
+            await this.loadLiveLog();
+            createLiveLog();
+            updateLiveLog('Ready to reply', 1);
+            
+            this.initStyles();
+            this.setupNavigationListener();
+            
+            // Wait for DOM to be ready before initial observer setup
+            if (document.readyState === 'complete') {
+                this.initObserver();
+                this.processExistingReplyBoxes();
+            } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                    this.initObserver();
+                    this.processExistingReplyBoxes();
+                });
+            }
+            
+            this.initialized = true;
+        } catch (error) {
+            console.error('Initialization error:', error);
+        }
+    }
+
+    setupNavigationListener() {
+        // Clean up previous handler if exists
+        if (this.routeChangeHandler) {
+            window.removeEventListener('popstate', this.routeChangeHandler);
+            document.removeEventListener('scroll', this.routeChangeHandler);
+        }
+
+        this.routeChangeHandler = () => {
+            const wasOnFeed = this.isOnFeed;
+            this.isOnFeed = window.location.href.includes('linkedin.com/feed');
+            
+            // If we just returned to feed, reinitialize
+            if (!wasOnFeed && this.isOnFeed) {
+                // Debounce to avoid multiple rapid calls
+                clearTimeout(this.navigationTimeout);
+                this.navigationTimeout = setTimeout(() => {
+                    if (this.observer) this.observer.disconnect();
+                    this.initObserver();
+                    this.processExistingReplyBoxes();
+                }, 800);
+            }
+        };
+        
+        window.addEventListener('popstate', this.routeChangeHandler);
+        document.addEventListener('scroll', this.routeChangeHandler);
+    }
+
+    processExistingReplyBoxes() {
+        // More comprehensive selector to catch all reply box variations
+        const replyBoxes = document.querySelectorAll('.comments-comment-box--reply, [data-test-id="reply-box"], .comments-comment-box.comments-comment-box--reply');
+        replyBoxes.forEach(replyBox => {
+            this.addDynamicButtonsToReplyBox(replyBox);
+        });
     }
   
     async loadLiveLog() {
@@ -29,79 +88,99 @@ class LinkedInReplyHelper {
     }
   
     initStyles() {
-        if (document.getElementById('dynamic-reply-styles')) return;
-        
-        const style = document.createElement('style');
-        style.id = 'dynamic-reply-styles';
-        style.textContent = `
-          .dynamic-reply-buttons {
-              border: 1px solid #24268d;
-              border-radius: 12px;
-              padding: 10px;
-              margin: 16px;
-              display: flex;
-              flex-wrap: wrap;
-              gap: 10px;
-              box-shadow: 0 0 8px rgba(100, 149, 237, 0.2);
-              overflow-x: auto;
-              background: #ffffff;
-              justify-content: flex-start;
-          }
-          .reply-btn {
-              position: relative;
-              overflow: hidden;
-              background: #ffffff;
-              color: rgb(0, 51, 204);
-              border: 1px solid rgb(0, 51, 204);
-              padding: 5px 10px;
-              border-radius: 50px;
-              font-size: 14px;
-              font-weight: normal;
-              cursor: pointer;
-              white-space: nowrap;
-              flex-shrink: 0;
-              min-width: unset;
-              text-align: center;
-              transition: all 0.4s ease;
-          }
-          .reply-btn:hover {
-              background: rgb(0, 51, 204);
-              color: #ffffff;
-          }
-          .reply-btn:active {
-              transform: scale(0.98);
-          }
-          .reply-btn:disabled {
-              opacity: 0.6;
-              cursor: not-allowed;
-              transform: none !important;
-              background: #24268d;
-              border: 1px solid #24268d;
-          }
-          .ai-loading-container {
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              width: 100%;
-              padding: 10px;
-          }
-          .stop-button {
-              margin-left: 10px;
-              padding: 3px 8px;
-              font-size: 12px;
-              background: #ffebee;
-              color: #c62828;
-              border: 1px solid #ef9a9a;
-              border-radius: 4px;
-              cursor: pointer;
-              transition: all 0.2s;
-          }
-          .stop-button:hover {
-              background: #ffcdd2;
-          }
-        `;
-        document.head.appendChild(style);
+      if (document.getElementById('dynamic-reply-styles')) return;
+      
+      const style = document.createElement('style');
+      style.id = 'dynamic-reply-styles';
+      style.textContent = `
+        .dynamic-reply-buttons {
+            border: 1px solid #24268d;
+            border-radius: 12px;
+            padding: 10px;
+            margin: 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            box-shadow: 0 0 8px rgba(100, 149, 237, 0.2);
+            overflow-x: auto;
+            background: #ffffff;
+            justify-content: flex-start;
+        }
+        .reply-btn {
+            position: relative;
+            overflow: hidden;
+            background: #ffffff;
+            color: rgb(0, 51, 204);
+            border: 1px solid rgb(0, 51, 204);
+            padding: 5px 10px;
+            border-radius: 50px;
+            font-size: 14px;
+            font-weight: normal;
+            cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
+            min-width: unset;
+            text-align: center;
+            transition: all 0.4s ease;
+        }
+        .reply-btn:hover {
+            background: rgb(0, 51, 204);
+            color: #ffffff;
+        }
+        .reply-btn:active {
+            transform: scale(0.98);
+        }
+        .reply-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+            background: #24268d;
+            border: 1px solid #24268d;
+        }
+        .ai-loading-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            padding: 10px;
+        }
+        .stop-button {
+            margin-left: 10px;
+            padding: 3px 8px;
+            font-size: 12px;
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef9a9a;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .stop-button:hover {
+            background: #ffcdd2;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  
+    async extractPostText(postContainer) {
+      const selectors = [
+        '.feed-shared-text__text-view',
+        '.feed-shared-inline-show-more-text',
+        '.update-components-text',
+        '.break-words',
+        '[data-test-id="post-text"]'
+      ];
+      
+      for (const selector of selectors) {
+        const element = postContainer.querySelector(selector);
+        if (element) {
+          return (element.innerText || element.textContent)
+            .replace(/\s+/g, ' ')
+            .trim();
+        }
       }
+      return null;
+    }
   
     async extractCommentText(commentContainer) {
       const selectors = [
@@ -431,55 +510,99 @@ class LinkedInReplyHelper {
         console.error('Extension context error:', error);
       }
     }
-  //modified initObserver
-    initObserver() {
-        // Disconnect existing observer if any
-        if (this.observer) this.observer.disconnect();
-      
-        // Create new observer with persistent tracking
-        this.observer = new MutationObserver(mutations => {
-          if (!document.body) return;
-          
-          // Always check all existing reply boxes on any DOM change
-          document.querySelectorAll('.comments-comment-box--reply').forEach(box => {
-            if (!this.processedReplyBoxes.has(box)) {
-              this.addDynamicButtonsToReplyBox(box);
-            }
-          });
-        });
-      
-        // Start observing
-        this.observer.observe(document.body, {
-          childList: true,
-          subtree: true
-        });
-      
-        // Also listen for LinkedIn's route changes
-        if (!this.routeChangeHandler) {
-          this.routeChangeHandler = () => {
-            setTimeout(() => {
-              document.querySelectorAll('.comments-comment-box--reply').forEach(box => {
-                this.addDynamicButtonsToReplyBox(box);
-              });
-            }, 1000); // Delay to allow LinkedIn's lazy loading
-          };
-          window.addEventListener('popstate', this.routeChangeHandler);
-        }
-      }
-  }
-
-  //optional cleanup method
-  destroy() {
-    if (this.observer) this.observer.disconnect();
-    if (this.routeChangeHandler) {
-      window.removeEventListener('popstate', this.routeChangeHandler);
-    }
-  }
   
-  if (window.location.href.includes('linkedin.com/feed')) {
-    try {
-      new LinkedInReplyHelper();
-    } catch (error) {
-      console.error('Failed to initialize LinkedInReplyHelper:', error);
+    initObserver() {
+        if (this.observer) {
+            this.observer.disconnect();
+        }
+        
+        this.observer = new MutationObserver(mutations => {
+            if (!this.isOnFeed) return;
+            
+            mutations.forEach(mutation => {
+                // Handle both added nodes and attribute changes
+                if (mutation.type === 'childList') {
+                    mutation.addedNodes.forEach(node => {
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            // Check direct matches first
+                            if (node.matches('.comments-comment-box--reply, [data-test-id="reply-box"], .comments-comment-box.comments-comment-box--reply')) {
+                                this.addDynamicButtonsToReplyBox(node);
+                            }
+                            
+                            // Check for nested reply boxes
+                            const replyBoxes = node.querySelectorAll('.comments-comment-box--reply, [data-test-id="reply-box"], .comments-comment-box.comments-comment-box--reply');
+                            replyBoxes.forEach(box => this.addDynamicButtonsToReplyBox(box));
+                        }
+                    });
+                }
+                // Handle cases where class changes make an element a reply box
+                else if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    if (mutation.target.matches('.comments-comment-box--reply, .comments-comment-box.comments-comment-box--reply')) {
+                        this.addDynamicButtonsToReplyBox(mutation.target);
+                    }
+                }
+            });
+        });
+
+        // More comprehensive observation
+        this.observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['class']
+        });
+
+        // Process existing reply boxes immediately
+        this.processExistingReplyBoxes();
     }
-  }
+
+    // ... (keep all your other existing methods the same)
+
+    destroy() {
+        if (this.observer) {
+            this.observer.disconnect();
+            this.observer = null;
+        }
+        if (this.routeChangeHandler) {
+            window.removeEventListener('popstate', this.routeChangeHandler);
+            document.removeEventListener('scroll', this.routeChangeHandler);
+            this.routeChangeHandler = null;
+        }
+        this.initialized = false;
+    }
+}
+
+// Improved initialization logic
+if (window.location.hostname.includes('linkedin.com')) {
+    let helperInstance = null;
+
+    const initHelper = () => {
+        // Only initialize if on feed and not already initialized
+        if (window.location.href.includes('linkedin.com/feed')) {
+            if (helperInstance) {
+                helperInstance.destroy();
+            }
+            helperInstance = new LinkedInReplyHelper();
+        }
+    };
+
+    // Initialize immediately if on feed
+    if (window.location.href.includes('linkedin.com/feed')) {
+        initHelper();
+    }
+    
+    // Listen for SPA navigation
+    window.addEventListener('popstate', initHelper);
+    document.addEventListener('scroll', initHelper);
+    
+    // Additional safety check for dynamic content loading
+    document.addEventListener('click', (e) => {
+        if (e.target.matches('button[data-control-name*="reply"], button[aria-label*="Reply"], button[aria-label*="reply"]')) {
+            setTimeout(() => {
+                if (helperInstance && helperInstance.initialized) {
+                    helperInstance.processExistingReplyBoxes();
+                }
+            }, 500);
+        }
+    });
+}
