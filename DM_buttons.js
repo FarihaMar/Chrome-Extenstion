@@ -16,9 +16,9 @@ class DMMessageButtons {
         style.textContent = `
             .dm-buttons-container {
                 border: 1px solid #24268d;
-                border-radius: 12px 12px 0 0; /* Rounded top only */
-                padding: 10px 10px 5px 10px; /* Less padding at bottom */
-                margin: 0;
+                border-radius: 12px;
+                padding: 10px;
+                margin: 10px 0;
                 display: flex;
                 flex-wrap: wrap;
                 gap: 10px;
@@ -27,7 +27,6 @@ class DMMessageButtons {
                 background: #ffffff;
                 justify-content: flex-start;
                 position: relative;
-                border-bottom: none; /* Remove bottom border */
             }
 
             .dm-template-btn {
@@ -102,14 +101,7 @@ class DMMessageButtons {
             /* New positioning wrapper */
             .agentlink-dm-wrapper {
                 position: relative;
-                margin-bottom: -1px; /* Align with message box */
                 z-index: 1;
-            }
-
-            /* Adjust LinkedIn's message box to connect visually */
-            .msg-form__msg-content-container {
-                border-radius: 0 0 12px 12px !important;
-                border-top: none !important;
             }
 
             /* Loading container styles */
@@ -222,6 +214,7 @@ class DMMessageButtons {
             btn.className = 'dm-template-btn';
             btn.textContent = config.name || config.label || 'Template';
             btn.setAttribute('data-original-text', config.name);
+            btn.type = 'button'; // Prevent form submission
 
             // Add ripple effect
             btn.addEventListener('click', function(e) {
@@ -240,6 +233,7 @@ class DMMessageButtons {
             });
 
             btn.addEventListener('click', async (e) => {
+                e.preventDefault(); // Prevent form submission
                 if (btn.disabled) return;
                 
                 // Create abort controller for cancellation
@@ -262,6 +256,7 @@ class DMMessageButtons {
                     const stopButton = document.createElement('button');
                     stopButton.className = 'stop-button';
                     stopButton.innerHTML = '✕ Stop';
+                    stopButton.type = 'button'; // Prevent form submission
                     
                     stopButton.onmouseover = () => {
                         stopButton.style.background = '#ffcdd2';
@@ -318,8 +313,10 @@ class DMMessageButtons {
                         document.execCommand('insertText', false, response.message);
                         
                         // Trigger necessary events
-                        messageBox.dispatchEvent(new Event('input', { bubbles: true }));
-                        messageBox.dispatchEvent(new Event('change', { bubbles: true }));
+                        const inputEvent = new Event('input', { bubbles: true });
+                        const changeEvent = new Event('change', { bubbles: true });
+                        messageBox.dispatchEvent(inputEvent);
+                        messageBox.dispatchEvent(changeEvent);
                     }
                 } catch (err) {
                     console.error('Error generating AI message:', err);
