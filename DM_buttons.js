@@ -15,32 +15,33 @@ class DMMessageButtons {
         style.id = 'dm-button-styles';
         style.textContent = `
             .dm-buttons-container {
-                border: 1px solid #24268d;
-                border-radius: 12px;
-                padding: 8px 12px 12px;
-                margin: 10px 0;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-                box-shadow: 0 0 8px rgba(100, 149, 237, 0.2);
-                overflow: hidden;
-                background: #ffffff;
-                position: relative;
-                max-width: 100%;
-            }
+    border: 1px solid #24268d;
+    border-radius: 12px;
+    padding: 12px;
+    margin: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 0 8px rgba(100, 149, 237, 0.2);
+    overflow: hidden;
+    background: #ffffff;
+    position: relative;
+    max-width: 100%;
+}
 
             .dm-buttons-scrollable {
-                display: flex;
-                flex-wrap: nowrap;
-                gap: 10px;
-                overflow-x: auto;
-                scroll-behavior: smooth;
-                width: calc(100% - 60px);
-                margin: 0 auto;
-                -ms-overflow-style: none;
-                scrollbar-width: none;
-                padding-bottom: 4px;
-            }
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 10px;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+    width: 100%;
+    margin: 0;
+    padding: 0 4px 4px 4px; /* minimal side padding */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
 
             .dm-buttons-scrollable::-webkit-scrollbar {
                 display: none;
@@ -183,6 +184,15 @@ class DMMessageButtons {
                 z-index: 2;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                 transition: all 0.2s;
+                opacity: 1;
+                visibility: visible;
+                transition: opacity 0.2s ease, visibility 0.2s ease;
+            }
+
+            .scroll-arrow.hidden {
+                opacity: 0;
+                visibility: hidden;
+                pointer-events: none;
             }
 
             .scroll-arrow:hover {
@@ -264,7 +274,7 @@ class DMMessageButtons {
         if (buttonConfigs.length === 0) return;
 
         const leftArrow = document.createElement('button');
-        leftArrow.className = 'scroll-arrow left';
+        leftArrow.className = 'scroll-arrow left hidden';
         leftArrow.innerHTML = `
             <svg viewBox="0 0 24 24">
                 <path d="M15 18l-6-6 6-6"/>
@@ -284,6 +294,14 @@ class DMMessageButtons {
         rightArrow.addEventListener('click', () => {
             scrollableContainer.scrollBy({ left: 200, behavior: 'smooth' });
         });
+
+        // Add scroll event listener to handle arrow visibility
+        scrollableContainer.addEventListener('scroll', () => {
+            this.updateArrowVisibility(scrollableContainer, leftArrow, rightArrow);
+        });
+
+        // Initial check
+        this.updateArrowVisibility(scrollableContainer, leftArrow, rightArrow);
 
         buttonConfigs.forEach(config => {
             const btn = document.createElement('button');
@@ -392,6 +410,11 @@ class DMMessageButtons {
             scrollableContainer.appendChild(btn);
         });
 
+        // Wait for buttons to render before checking visibility
+        setTimeout(() => {
+            this.updateArrowVisibility(scrollableContainer, leftArrow, rightArrow);
+        }, 100);
+
         buttonWrapper.appendChild(leftArrow);
         buttonWrapper.appendChild(scrollableContainer);
         buttonWrapper.appendChild(rightArrow);
@@ -399,6 +422,26 @@ class DMMessageButtons {
         wrapper.appendChild(buttonWrapper);
 
         messageContainer.parentNode.insertBefore(wrapper, messageContainer);
+    }
+
+    updateArrowVisibility(scrollableContainer, leftArrow, rightArrow) {
+        const scrollLeft = scrollableContainer.scrollLeft;
+        const scrollWidth = scrollableContainer.scrollWidth;
+        const clientWidth = scrollableContainer.clientWidth;
+        
+        // Show/hide left arrow
+        if (scrollLeft <= 10) {
+            leftArrow.classList.add('hidden');
+        } else {
+            leftArrow.classList.remove('hidden');
+        }
+        
+        // Show/hide right arrow
+        if (scrollLeft >= scrollWidth - clientWidth - 10) {
+            rightArrow.classList.add('hidden');
+        } else {
+            rightArrow.classList.remove('hidden');
+        }
     }
 
     initObserver() {
