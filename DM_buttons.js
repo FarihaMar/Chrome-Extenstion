@@ -274,24 +274,30 @@ class DMMessageButtons {
         if (buttonConfigs.length === 0) return;
 
         const leftArrow = document.createElement('button');
+        leftArrow.type='button';
         leftArrow.className = 'scroll-arrow left hidden';
         leftArrow.innerHTML = `
             <svg viewBox="0 0 24 24">
                 <path d="M15 18l-6-6 6-6"/>
             </svg>
         `;
-        leftArrow.addEventListener('click', () => {
+        leftArrow.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();  
             scrollableContainer.scrollBy({ left: -200, behavior: 'smooth' });
         });
 
         const rightArrow = document.createElement('button');
+        rightArrow.typr='button';
         rightArrow.className = 'scroll-arrow right';
         rightArrow.innerHTML = `
             <svg viewBox="0 0 24 24">
                 <path d="M9 18l6-6-6-6"/>
             </svg>
         `;
-        rightArrow.addEventListener('click', () => {
+        rightArrow.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation(); 
             scrollableContainer.scrollBy({ left: 200, behavior: 'smooth' });
         });
 
@@ -404,6 +410,8 @@ class DMMessageButtons {
                         btn.disabled = false;
                         btn.textContent = originalTexts.get(btn) || btn.getAttribute('data-original-text') || config.name;
                     });
+                    this.updateArrowVisibility(scrollableContainer, leftArrow, rightArrow);
+
                 }
             });
 
