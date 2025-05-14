@@ -17,16 +17,33 @@ class DMMessageButtons {
             .dm-buttons-container {
                 border: 1px solid #24268d;
                 border-radius: 12px;
-                padding: 10px;
+                padding: 8px 12px 12px;
                 margin: 10px 0;
                 display: flex;
-                flex-wrap: wrap;
-                gap: 10px;
+                flex-direction: column;
+                gap: 8px;
                 box-shadow: 0 0 8px rgba(100, 149, 237, 0.2);
-                overflow-x: auto;
+                overflow: hidden;
                 background: #ffffff;
-                justify-content: flex-start;
                 position: relative;
+                max-width: 100%;
+            }
+
+            .dm-buttons-scrollable {
+                display: flex;
+                flex-wrap: nowrap;
+                gap: 10px;
+                overflow-x: auto;
+                scroll-behavior: smooth;
+                width: calc(100% - 60px);
+                margin: 0 auto;
+                -ms-overflow-style: none;
+                scrollbar-width: none;
+                padding-bottom: 4px;
+            }
+
+            .dm-buttons-scrollable::-webkit-scrollbar {
+                display: none;
             }
 
             .dm-template-btn {
@@ -88,23 +105,21 @@ class DMMessageButtons {
             .powered-by {
                 width: 100%;
                 border-top: 1px solid #e5e7eb;
-                padding-top: 8px;
+                padding-top: 6px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 gap: 6px;
                 font-size: 14px;
                 color: #24268d;
-                margin-top: 5px;
+                margin-top: auto;
             }
 
-            /* New positioning wrapper */
             .agentlink-dm-wrapper {
                 position: relative;
                 z-index: 1;
             }
 
-            /* Loading container styles */
             .ai-loading-container {
                 animation: fadeIn 0.3s ease-out;
                 border: 1px solid #e0e0e0;
@@ -151,6 +166,42 @@ class DMMessageButtons {
                 text-align: center;
                 width: 100%;
             }
+
+            .scroll-arrow {
+                position: absolute;
+                top: 50%;
+                transform: translateY(-50%);
+                width: 30px;
+                height: 30px;
+                background: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                z-index: 2;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                transition: all 0.2s;
+            }
+
+            .scroll-arrow:hover {
+                background: #f0f0f0;
+            }
+
+            .scroll-arrow.left {
+                left: 5px;
+            }
+
+            .scroll-arrow.right {
+                right: 5px;
+            }
+
+            .scroll-arrow svg {
+                width: 16px;
+                height: 16px;
+                fill: #24268d;
+            }
         `;
         document.head.appendChild(style);
     }
@@ -190,18 +241,21 @@ class DMMessageButtons {
         if (this.processedMessageBoxes.has(messageContainer)) return;
         this.processedMessageBoxes.add(messageContainer);
 
-        // Check if wrapper already exists
         let wrapper = messageContainer.previousElementSibling;
         if (wrapper && wrapper.classList.contains('agentlink-dm-wrapper')) {
-            return; // Already injected
+            return;
         }
 
-        // Create wrapper div
         wrapper = document.createElement('div');
         wrapper.className = 'agentlink-dm-wrapper';
 
         const buttonWrapper = document.createElement('div');
         buttonWrapper.className = 'dm-buttons-container';
+
+        const scrollableContainer = document.createElement('div');
+        scrollableContainer.className = 'dm-buttons-scrollable';
+
+        const poweredBy = this.createAgentLinkBranding();
 
         const { buttonConfigs = [] } = await new Promise(resolve => {
             chrome.storage.local.get(['buttonConfigs'], resolve);
@@ -209,14 +263,35 @@ class DMMessageButtons {
 
         if (buttonConfigs.length === 0) return;
 
+        const leftArrow = document.createElement('button');
+        leftArrow.className = 'scroll-arrow left';
+        leftArrow.innerHTML = `
+            <svg viewBox="0 0 24 24">
+                <path d="M15 18l-6-6 6-6"/>
+            </svg>
+        `;
+        leftArrow.addEventListener('click', () => {
+            scrollableContainer.scrollBy({ left: -200, behavior: 'smooth' });
+        });
+
+        const rightArrow = document.createElement('button');
+        rightArrow.className = 'scroll-arrow right';
+        rightArrow.innerHTML = `
+            <svg viewBox="0 0 24 24">
+                <path d="M9 18l6-6-6-6"/>
+            </svg>
+        `;
+        rightArrow.addEventListener('click', () => {
+            scrollableContainer.scrollBy({ left: 200, behavior: 'smooth' });
+        });
+
         buttonConfigs.forEach(config => {
             const btn = document.createElement('button');
             btn.className = 'dm-template-btn';
             btn.textContent = config.name || config.label || 'Template';
             btn.setAttribute('data-original-text', config.name);
-            btn.type = 'button'; // Prevent form submission
+            btn.type = 'button';
 
-            // Add ripple effect
             btn.addEventListener('click', function(e) {
                 const rect = this.getBoundingClientRect();
                 const x = e.clientX - rect.left;
@@ -233,19 +308,16 @@ class DMMessageButtons {
             });
 
             btn.addEventListener('click', async (e) => {
-                e.preventDefault(); // Prevent form submission
+                e.preventDefault();
                 if (btn.disabled) return;
                 
-                // Create abort controller for cancellation
                 const abortController = new AbortController();
                 let isCancelled = false;
 
-                // Get all buttons in the container
-                const buttons = buttonWrapper.querySelectorAll('.dm-template-btn');
+                const buttons = scrollableContainer.querySelectorAll('.dm-template-btn');
                 const originalTexts = new Map(Array.from(buttons).map(btn => [btn, btn.textContent]));
 
                 try {
-                    // Hide all buttons and show loading message with stop button
                     const loadingContainer = document.createElement('div');
                     loadingContainer.className = 'ai-loading-container';
                     
@@ -256,15 +328,10 @@ class DMMessageButtons {
                     const stopButton = document.createElement('button');
                     stopButton.className = 'stop-button';
                     stopButton.innerHTML = '✕ Stop';
-                    stopButton.type = 'button'; // Prevent form submission
+                    stopButton.type = 'button';
                     
-                    stopButton.onmouseover = () => {
-                        stopButton.style.background = '#ffcdd2';
-                    };
-                    stopButton.onmouseout = () => {
-                        stopButton.style.background = '#ffebee';
-                    };
-                    
+                    stopButton.onmouseover = () => stopButton.style.background = '#ffcdd2';
+                    stopButton.onmouseout = () => stopButton.style.background = '#ffebee';
                     stopButton.onclick = () => {
                         isCancelled = true;
                         abortController.abort();
@@ -275,13 +342,8 @@ class DMMessageButtons {
                     loadingContainer.appendChild(loadingMessage);
                     loadingContainer.appendChild(stopButton);
                     
-                    // Hide all buttons
-                    buttons.forEach(btn => {
-                        btn.style.display = 'none';
-                    });
-                    
-                    // Insert loading container
                     buttonWrapper.insertBefore(loadingContainer, buttonWrapper.firstChild);
+                    buttons.forEach(btn => btn.style.display = 'none');
 
                     const profileData = await gatherCompleteProfileData();
                     const aiSettings = await getAISettings();
@@ -302,17 +364,11 @@ class DMMessageButtons {
 
                     const messageBox = messageContainer.querySelector('.msg-form__contenteditable[contenteditable="true"]');
                     if (messageBox) {
-                        // Completely clear the message box including any hidden formatting
                         messageBox.innerHTML = '<p><br></p>';
-                        
-                        // Focus and select all to ensure we're at the start
                         messageBox.focus();
                         document.execCommand('selectAll', false, null);
-                        
-                        // Insert the text directly at the beginning
                         document.execCommand('insertText', false, response.message);
                         
-                        // Trigger necessary events
                         const inputEvent = new Event('input', { bubbles: true });
                         const changeEvent = new Event('change', { bubbles: true });
                         messageBox.dispatchEvent(inputEvent);
@@ -322,12 +378,9 @@ class DMMessageButtons {
                     console.error('Error generating AI message:', err);
                     this.showError(err.message, buttonWrapper);
                 } finally {
-                    // Remove loading container and restore buttons
                     const loadingContainer = buttonWrapper.querySelector('.ai-loading-container');
-                    if (loadingContainer) {
-                        loadingContainer.remove();
-                    }
-                    
+                    if (loadingContainer) loadingContainer.remove();
+
                     buttons.forEach(btn => {
                         btn.style.display = '';
                         btn.disabled = false;
@@ -336,13 +389,15 @@ class DMMessageButtons {
                 }
             });
 
-            buttonWrapper.appendChild(btn);
+            scrollableContainer.appendChild(btn);
         });
 
-        buttonWrapper.appendChild(this.createAgentLinkBranding());
+        buttonWrapper.appendChild(leftArrow);
+        buttonWrapper.appendChild(scrollableContainer);
+        buttonWrapper.appendChild(rightArrow);
+        buttonWrapper.appendChild(poweredBy);
         wrapper.appendChild(buttonWrapper);
 
-        // Insert the wrapper before the message container
         messageContainer.parentNode.insertBefore(wrapper, messageContainer);
     }
 
@@ -370,20 +425,17 @@ class DMMessageButtons {
             subtree: true
         });
 
-        // Process existing message containers
         document.querySelectorAll('.msg-form__msg-content-container').forEach(container => {
             this.injectButtons(container);
         });
     }
 }
 
-// Reused from 1st_DM.js
 async function getAISettings() {
     const { aiSettings = {} } = await chrome.storage.local.get(['aiSettings']);
     return aiSettings;
 }
 
-// Simplified version of gatherCompleteProfileData from 1st_DM.js
 async function gatherCompleteProfileData() {
     return {
         name: document.querySelector('h1')?.innerText.trim() || 'Name not found',
@@ -393,7 +445,6 @@ async function gatherCompleteProfileData() {
     };
 }
 
-// Initialize when on LinkedIn
 if (window.location.hostname.includes('linkedin.com')) {
     new DMMessageButtons();
 }
