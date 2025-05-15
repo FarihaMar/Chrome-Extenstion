@@ -1,9 +1,10 @@
-// ================= personal_DM.js =================
+// ================= ContextAwareLinkedInAssistant.js =================
 
-class PersonalDMMessageButtons {
+class ContextAwareLinkedInAssistant {
     constructor() {
         this.processedMessageBoxes = new WeakSet();
         this.observer = null;
+        this.currentUser = this.detectCurrentUser();
         this.initObserver();
         this.initStyles();
     }
@@ -52,7 +53,7 @@ class PersonalDMMessageButtons {
                 background: #ffffff;
                 color: rgb(0, 51, 204);
                 border: 1px solid rgb(0, 51, 204);
-                padding: 5px 10px;
+                padding: 8px 16px;
                 border-radius: 50px;
                 font-size: 14px;
                 font-weight: normal;
@@ -215,7 +216,7 @@ class PersonalDMMessageButtons {
         document.head.appendChild(style);
     }
 
-    createAgentLinkBranding() {
+    createBranding() {
         const powered = document.createElement('div');
         powered.className = 'powered-by';
         powered.innerHTML = `
@@ -246,6 +247,45 @@ class PersonalDMMessageButtons {
         setTimeout(() => error.remove(), 5000);
     }
 
+    detectCurrentUser() {
+        const selectors = [
+            '.global-nav__me-content .t-16',
+            '.msg-s-message-group__name',
+            '.feed-identity-module__actor-link',
+            '.profile-rail-card__actor-link'
+        ];
+
+        for (const selector of selectors) {
+            const element = document.querySelector(selector);
+            if (element) {
+                const name = element.textContent.trim();
+                if (name && name.length > 0) {
+                    return name.split('\n')[0].trim();
+                }
+            }
+        }
+
+        return 'You';
+    }
+
+    updateArrowVisibility(scrollableContainer, leftArrow, rightArrow) {
+        const scrollLeft = scrollableContainer.scrollLeft;
+        const scrollWidth = scrollableContainer.scrollWidth;
+        const clientWidth = scrollableContainer.clientWidth;
+        
+        if (scrollLeft <= 10) {
+            leftArrow.classList.add('hidden');
+        } else {
+            leftArrow.classList.remove('hidden');
+        }
+        
+        if (scrollLeft >= scrollWidth - clientWidth - 10) {
+            rightArrow.classList.add('hidden');
+        } else {
+            rightArrow.classList.remove('hidden');
+        }
+    }
+
     async injectButtons(messageContainer) {
         if (this.processedMessageBoxes.has(messageContainer)) return;
         this.processedMessageBoxes.add(messageContainer);
@@ -264,47 +304,40 @@ class PersonalDMMessageButtons {
         const scrollableContainer = document.createElement('div');
         scrollableContainer.className = 'dm-buttons-scrollable';
 
-        const poweredBy = this.createAgentLinkBranding();
+        const poweredBy = this.createBranding();
 
-        const { personalDmConfigs = [] } = await new Promise(resolve => {
-            chrome.storage.local.get(['personalDmConfigs'], resolve);
-        });
+        const replyTemplates = [
+            { name: "Short Reply", style: "concise" },
+            { name: "Friendly Reply", style: "friendly" },
+            { name: "Professional Reply", style: "professional" },
+            { name: "Detailed Reply", style: "detailed" }
+        ];
 
-        if (personalDmConfigs.length === 0) return;
-
+        // Create scroll arrows
         const leftArrow = document.createElement('button');
         leftArrow.className = 'scroll-arrow left hidden';
-        leftArrow.innerHTML = `
-            <svg viewBox="0 0 24 24">
-                <path d="M15 18l-6-6 6-6"/>
-            </svg>
-        `;
+        leftArrow.innerHTML = `<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>`;
         leftArrow.addEventListener('click', () => {
             scrollableContainer.scrollBy({ left: -200, behavior: 'smooth' });
         });
 
         const rightArrow = document.createElement('button');
         rightArrow.className = 'scroll-arrow right';
-        rightArrow.innerHTML = `
-            <svg viewBox="0 0 24 24">
-                <path d="M9 18l6-6-6-6"/>
-            </svg>
-        `;
+        rightArrow.innerHTML = `<svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>`;
         rightArrow.addEventListener('click', () => {
             scrollableContainer.scrollBy({ left: 200, behavior: 'smooth' });
         });
 
+        // Add scroll event listener
         scrollableContainer.addEventListener('scroll', () => {
             this.updateArrowVisibility(scrollableContainer, leftArrow, rightArrow);
         });
 
-        this.updateArrowVisibility(scrollableContainer, leftArrow, rightArrow);
-
-        personalDmConfigs.forEach(config => {
+        replyTemplates.forEach(config => {
             const btn = document.createElement('button');
             btn.className = 'dm-template-btn';
-            btn.textContent = config.name || config.label || 'Template';
-            btn.setAttribute('data-original-text', config.name);
+            btn.textContent = config.name;
+            btn.setAttribute('data-style', config.style);
             btn.type = 'button';
 
             btn.addEventListener('click', function(e) {
@@ -338,7 +371,7 @@ class PersonalDMMessageButtons {
                     
                     const loadingMessage = document.createElement('div');
                     loadingMessage.className = 'ai-loading-message';
-                    loadingMessage.textContent = '🤖 AgentLink is generating your message...';
+                    loadingMessage.textContent = '🤖 AgentLink is generating your reply...';
                     
                     const stopButton = document.createElement('button');
                     stopButton.className = 'stop-button';
@@ -360,23 +393,16 @@ class PersonalDMMessageButtons {
                     buttonWrapper.insertBefore(loadingContainer, buttonWrapper.firstChild);
                     buttons.forEach(btn => btn.style.display = 'none');
 
-                    const activeConversation = document.querySelector('.msg-conversation-listitem--active');
-                    const participantName = activeConversation?.querySelector('.msg-conversation-card__participant-names span')?.textContent.trim();
+                    const conversationContext = await this.analyzeConversation();
                     
-                    if (!participantName) {
-                        throw new Error('Please select a conversation first');
+                    if (!conversationContext.participant.name || conversationContext.participant.name === 'Unknown') {
+                        throw new Error('Could not identify conversation participant. Please make sure you\'re in a conversation.');
                     }
 
-                    const chatHistory = this.extractMessages(5);
-                    const aiSettings = await getAISettings();
-
-                    if (isCancelled) throw new Error('Generation cancelled by user');
-
                     const response = await chrome.runtime.sendMessage({
-                        action: "generatePersonalDm",
-                        participantData: { participantName, chatHistory },
-                        config,
-                        aiSettings,
+                        action: "generateContextualResponse",
+                        conversationContext: conversationContext,
+                        responseStyle: btn.getAttribute('data-style'),
                         signal: abortController.signal
                     });
 
@@ -384,18 +410,7 @@ class PersonalDMMessageButtons {
                     if (response?.error) throw new Error(response.error);
                     if (!response?.message) throw new Error('Failed to generate message');
 
-                    const messageBox = messageContainer.querySelector('.msg-form__contenteditable[contenteditable="true"]');
-                    if (messageBox) {
-                        messageBox.innerHTML = '<p><br></p>';
-                        messageBox.focus();
-                        document.execCommand('selectAll', false, null);
-                        document.execCommand('insertText', false, response.message);
-                        
-                        const inputEvent = new Event('input', { bubbles: true });
-                        const changeEvent = new Event('change', { bubbles: true });
-                        messageBox.dispatchEvent(inputEvent);
-                        messageBox.dispatchEvent(changeEvent);
-                    }
+                    this.insertMessage(response.message, messageContainer);
                 } catch (err) {
                     console.error('Error generating AI message:', err);
                     this.showError(err.message, buttonWrapper);
@@ -406,14 +421,16 @@ class PersonalDMMessageButtons {
                     buttons.forEach(btn => {
                         btn.style.display = '';
                         btn.disabled = false;
-                        btn.textContent = originalTexts.get(btn) || btn.getAttribute('data-original-text') || config.name;
+                        btn.textContent = originalTexts.get(btn) || btn.textContent;
                     });
+                    this.updateArrowVisibility(scrollableContainer, leftArrow, rightArrow);
                 }
             });
 
             scrollableContainer.appendChild(btn);
         });
 
+        // Initial arrow visibility check
         setTimeout(() => {
             this.updateArrowVisibility(scrollableContainer, leftArrow, rightArrow);
         }, 100);
@@ -427,54 +444,194 @@ class PersonalDMMessageButtons {
         messageContainer.parentNode.insertBefore(wrapper, messageContainer);
     }
 
-    updateArrowVisibility(scrollableContainer, leftArrow, rightArrow) {
-        const scrollLeft = scrollableContainer.scrollLeft;
-        const scrollWidth = scrollableContainer.scrollWidth;
-        const clientWidth = scrollableContainer.clientWidth;
+    async analyzeConversation() {
+        const participantData = this.extractParticipantData();
+        const chatHistory = this.extractMessages(5);
+        const conversationAnalysis = this.analyzeMessages(chatHistory);
         
-        if (scrollLeft <= 10) {
-            leftArrow.classList.add('hidden');
-        } else {
-            leftArrow.classList.remove('hidden');
-        }
+        return {
+            participant: participantData,
+            history: chatHistory,
+            analysis: conversationAnalysis,
+            currentUser: this.currentUser,
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    extractParticipantData() {
+        // First try to get data from the profile card in the conversation
+        const profileCard = document.querySelector('.msg-s-profile-card');
         
-        if (scrollLeft >= scrollWidth - clientWidth - 10) {
-            rightArrow.classList.add('hidden');
-        } else {
-            rightArrow.classList.remove('hidden');
+        if (profileCard) {
+            const nameElement = profileCard.querySelector('.artdeco-entity-lockup__title span');
+            const titleElement = profileCard.querySelector('.artdeco-entity-lockup__subtitle div');
+            const degreeElement = profileCard.querySelector('.artdeco-entity-lockup__degree');
+            const pronounsElement = profileCard.querySelector('.t-14.t-black--light');
+            const profileLink = profileCard.querySelector('a[href*="/in/"]');
+            
+            let name = nameElement?.textContent.trim() || 'Unknown';
+            // Skip if the name is the current user
+            if (name === this.currentUser) {
+                const otherParticipant = document.querySelector('.msg-s-message-group__name:not(:contains(' + this.currentUser + '))');
+                if (otherParticipant) {
+                    name = otherParticipant.textContent.trim();
+                }
+            }
+
+            return {
+                name: name,
+                title: titleElement?.textContent.trim() || '',
+                connectionDegree: degreeElement?.textContent.replace('·', '').trim() || '',
+                pronouns: pronounsElement?.textContent.replace(/[()]/g, '').trim() || '',
+                profileUrl: profileLink ? `https://linkedin.com${new URL(profileLink.href).pathname}` : ''
+            };
         }
+
+        // Fallback to other selectors if profile card not found
+        const nameElement = document.querySelector('.msg-conversation-card__participant-names span') || 
+                         document.querySelector('.msg-thread-sender__name') ||
+                         document.querySelector('.msg-s-message-group__name:not(:has(+ .msg-s-message-group__name))') ||
+                         document.querySelector('.msg-s-message-group__name');
+
+        let name = nameElement?.textContent.trim() || 'Unknown';
+        if (name === this.currentUser) {
+            const otherParticipant = document.querySelector('.msg-s-message-group__name:not(:contains(' + this.currentUser + '))');
+            if (otherParticipant) {
+                name = otherParticipant.textContent.trim();
+            }
+        }
+
+        const titleElement = document.querySelector('.msg-thread-sender__occupation');
+        const degreeElement = document.querySelector('.artdeco-entity-lockup__degree');
+        const pronounsElement = document.querySelector('.msg-s-message-group__meta .t-12.t-black--light');
+        const profileLink = document.querySelector('a[href*="/in/"]');
+
+        return {
+            name,
+            title: titleElement?.textContent.trim() || '',
+            connectionDegree: degreeElement?.textContent.replace('·', '').trim() || '',
+            pronouns: pronounsElement?.textContent.replace(/[()]/g, '').trim() || '',
+            profileUrl: profileLink ? `https://linkedin.com${new URL(profileLink.href).pathname}` : ''
+        };
     }
 
     extractMessages(limit) {
-    const messageContainer = document.querySelector('.msg-s-message-list');
-    if (!messageContainer) return "";
+        // First try to get messages from the active conversation thread
+        const messageContainer = document.querySelector('.msg-s-message-list-content') || 
+                               document.querySelector('.msg-thread');
+        
+        if (!messageContainer) return [];
 
-    const messageItems = messageContainer.querySelectorAll('.msg-s-message-list__event');
-    const messages = [];
+        const messageItems = Array.from(messageContainer.querySelectorAll('.msg-s-event-listitem, .msg-s-message-group'));
+        const messages = [];
+        let count = 0;
 
-    let lastKnownSender = null;
+        const reversedItems = [...messageItems].reverse();
 
-    messageItems.forEach(item => {
-        const messageElements = item.querySelectorAll('.msg-s-event-listitem');
+        for (const item of reversedItems) {
+            if (count >= limit) break;
 
-        messageElements.forEach(messageItem => {
-            const senderElement = messageItem.querySelector('.msg-s-message-group__name');
-            const messageElement = messageItem.querySelector('.msg-s-event-listitem__body');
+            // Try different selectors for sender name
+            const senderElement = item.querySelector('.msg-s-message-group__name') || 
+                                item.querySelector('.msg-sender__name') ||
+                                item.closest('.msg-s-message-group')?.querySelector('.msg-s-message-group__name');
+            
+            // Try different selectors for message content
+            const messageElement = item.querySelector('.msg-s-event-listitem__body') || 
+                                 item.querySelector('.msg-s-message-group__bubble') ||
+                                 item.querySelector('.msg-s-message-group__message');
 
-            const sender = senderElement ? senderElement.textContent.trim() : lastKnownSender;
-            const message = messageElement ? messageElement.textContent.trim() : "";
+            if (!messageElement) continue;
 
-            if (!message) return;
+            const sender = senderElement ? senderElement.textContent.trim() : null;
+            const message = messageElement.textContent.trim();
+            
+            if (message && message !== "This message has been deleted.") {
+                messages.unshift({
+                    sender,
+                    message,
+                    isCurrentUser: sender === this.currentUser
+                });
+                count++;
+            }
+        }
 
-            if (senderElement) lastKnownSender = sender;
+        return messages;
+    }
 
-            messages.push(`${sender}: ${message}`);
-        });
-    });
+    analyzeMessages(messages) {
+        if (!messages || messages.length === 0) {
+            return {
+                lastMessage: '',
+                lastMessageText: '',
+                isQuestion: false,
+                tone: 'neutral',
+                isCurrentUserLastSender: false,
+                requiresResponse: false,
+                isUrgent: false,
+                topics: []
+            };
+        }
+        
+        const lastMessage = messages[messages.length - 1];
+        const lastMessageText = lastMessage.message.toLowerCase();
+        
+        let tone = 'neutral';
+        const positiveWords = ['great', 'happy', 'excited', 'thanks', 'thank you', 'wonderful', 'appreciate'];
+        const negativeWords = ['angry', 'unhappy', 'disappointed', 'problem', 'issue', 'concern', 'frustrated'];
+        
+        if (positiveWords.some(word => lastMessageText.includes(word))) {
+            tone = 'positive';
+        } else if (negativeWords.some(word => lastMessageText.includes(word))) {
+            tone = 'negative';
+        }
+        
+        const isQuestion = lastMessageText.includes('?') || 
+                          /^(what|how|can you|could you|would you|do you|who|when|where|why)/i.test(lastMessageText);
+        
+        const isUrgent = /\b(urgent|asap|immediately|soon|quick)\b/i.test(lastMessageText);
+        
+        // Extract potential topics from messages
+        const topics = [];
+        const topicKeywords = {
+            'data science': ['data scien', 'machine learning', 'ml', 'ai', 'artificial intelligence'],
+            'job opportunity': ['job', 'opportunity', 'position', 'hire', 'hiring'],
+            'networking': ['connect', 'network', 'introduction', 'linkedin'],
+            'education': ['study', 'university', 'course', 'learn', 'education']
+        };
+        
+        for (const [topic, keywords] of Object.entries(topicKeywords)) {
+            if (keywords.some(keyword => lastMessageText.includes(keyword))) {
+                topics.push(topic);
+            }
+        }
+        
+        return {
+            lastMessage: lastMessage.message,
+            lastMessageText,
+            isQuestion,
+            tone,
+            isCurrentUserLastSender: lastMessage.isCurrentUser,
+            requiresResponse: !lastMessage.isCurrentUser,
+            isUrgent,
+            topics
+        };
+    }
 
-    return messages.slice(-limit).join("\n");
-}
-
+    insertMessage(message, messageContainer) {
+        const messageBox = messageContainer.querySelector('.msg-form__contenteditable[contenteditable="true"]');
+        if (messageBox) {
+            messageBox.innerHTML = '<p><br></p>';
+            messageBox.focus();
+            document.execCommand('selectAll', false, null);
+            document.execCommand('insertText', false, message);
+            
+            const inputEvent = new Event('input', { bubbles: true });
+            const changeEvent = new Event('change', { bubbles: true });
+            messageBox.dispatchEvent(inputEvent);
+            messageBox.dispatchEvent(changeEvent);
+        }
+    }
 
     initObserver() {
         if (this.observer) {
@@ -506,11 +663,6 @@ class PersonalDMMessageButtons {
     }
 }
 
-async function getAISettings() {
-    const { aiSettings = {} } = await chrome.storage.local.get(['aiSettings']);
-    return aiSettings;
-}
-
 if (window.location.hostname.includes('linkedin.com')) {
-    new PersonalDMMessageButtons();
+    new ContextAwareLinkedInAssistant();
 }
