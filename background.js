@@ -39,8 +39,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       },
       config,
       aiSettings: {
-        apiKey: "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", 
-        apiUrl: "https://openrouter.ai/api/v1/chat/completions" 
+        apiKey: "API KEY", 
+        apiUrl: "API EndPoint" 
       }
     });
     sendResponse(result);
