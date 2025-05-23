@@ -3,16 +3,18 @@ console.log('LinkedIn Chat Enhancer: Content script loaded');
 
 class LinkedInChatEnhancer {
     constructor() {
-        this.processedMessageBoxes = new WeakSet();
-        this.currentConversation = null;
-        this.lastMessages = [];
-        this.observer = null;
-        this.messageObserver = null;
-        this.initStyles();
-        this.initObservers();
-        this.setupGlobalListeners();
-        this.loadLiveLog();
-    }
+    this.processedMessageBoxes = new WeakSet();
+    this.currentConversation = null;
+    this.lastMessages = [];
+    this.observer = null;
+    this.messageObserver = null;
+    this.initStyles();
+    this.initObservers();
+    this.setupGlobalListeners();
+    this.setupStorageListener(); // Add this line
+    this.loadLiveLog();
+    this.setupMessageHandlers();
+}
 
     async loadLiveLog() {
         if (window.createLiveLog && window.updateLiveLog) return;
@@ -35,7 +37,7 @@ class LinkedInChatEnhancer {
             border: 1px solid #24268d;
             border-radius: 12px;
             padding: 10px;
-            margin: 8px 0;
+            margin: 6px;
             display: flex;
             flex-direction: column;
             gap: 8px;
@@ -211,6 +213,42 @@ class LinkedInChatEnhancer {
         document.head.appendChild(style);
     }
 
+    // Add this method to the LinkedInChatEnhancer class
+    setupStorageListener() {
+      chrome.storage.onChanged.addListener((changes, namespace) => {
+        if (changes.buttonConfigs || changes.personalDmConfigs) {
+          // Refresh all button containers when configs change
+          document.querySelectorAll('.dm-buttons-container').forEach(container => {
+            const messageContainer = container.nextElementSibling.closest('.msg-form__msg-content-container') || 
+            container.parentNode.querySelector('.msg-form__msg-content-container');
+            if (messageContainer) {
+              container.remove();
+              this.processedMessageBoxes.delete(messageContainer);
+              this.injectButtons(messageContainer);
+            }
+          });
+        }
+      });
+    }
+
+    
+
+    setupMessageHandlers() {
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+        if (request.action === "refreshButtons") {
+            document.querySelectorAll('.dm-buttons-container').forEach(container => {
+                const messageContainer = container.nextElementSibling.closest('.msg-form__msg-content-container') || 
+                                       container.parentNode.querySelector('.msg-form__msg-content-container');
+                if (messageContainer) {
+                    container.remove();
+                    this.processedMessageBoxes.delete(messageContainer);
+                    this.injectButtons(messageContainer);
+                }
+            });
+        }
+    });
+}
+
     createAgentLinkBranding() {
         const powered = document.createElement('div');
         powered.className = 'powered-by';
@@ -286,39 +324,43 @@ class LinkedInChatEnhancer {
     }
 
     async injectButtons(messageContainer) {
-        if (this.processedMessageBoxes.has(messageContainer)) return;
-        this.processedMessageBoxes.add(messageContainer);
+    if (this.processedMessageBoxes.has(messageContainer)) return;
+    this.processedMessageBoxes.add(messageContainer);
 
-        if (messageContainer.querySelector('.dm-buttons-container')) return;
+    if (messageContainer.querySelector('.dm-buttons-container')) return;
 
-        const buttonWrapper = document.createElement('div');
-        buttonWrapper.className = 'dm-buttons-container';
+    const buttonWrapper = document.createElement('div');
+    buttonWrapper.className = 'dm-buttons-container';
 
-        const scrollRow = document.createElement('div');
-        scrollRow.className = 'dm-scroll-row';
+    const scrollRow = document.createElement('div');
+    scrollRow.className = 'dm-scroll-row';
 
-        const { buttonConfigs = [] } = await new Promise(resolve => {
-            chrome.storage.local.get(['buttonConfigs'], resolve);
-        });
+    // Get both message and DM configs
+    const { buttonConfigs = [], personalDmConfigs = [] } = await new Promise(resolve => {
+        chrome.storage.local.get(['buttonConfigs', 'personalDmConfigs'], resolve);
+    });
 
-        buttonConfigs.forEach(config => {
-            const btn = this.createButton(config, messageContainer);
-            scrollRow.appendChild(btn);
-        });
+    // Combine both configs (or use just one depending on context)
+    const allConfigs = [...buttonConfigs, ...personalDmConfigs];
     
-        // Add scroll row and branding to wrapper
-        buttonWrapper.appendChild(scrollRow);
-        buttonWrapper.appendChild(this.createAgentLinkBranding());
+    allConfigs.forEach(config => {
+        const btn = this.createButton(config, messageContainer);
+        scrollRow.appendChild(btn);
+    });
 
-        // Find the best place to insert the buttons
-        const targetElement = messageContainer.closest('.msg-form__container') || 
-                             messageContainer.closest('footer.msg-messaging-form__footer') || 
-                             messageContainer.parentNode;
-        
-        if (targetElement) {
-            targetElement.insertBefore(buttonWrapper, messageContainer);
-        }
+    // Add scroll row and branding to wrapper
+    buttonWrapper.appendChild(scrollRow);
+    buttonWrapper.appendChild(this.createAgentLinkBranding());
+
+    // Find the best place to insert the buttons
+    const targetElement = messageContainer.closest('.msg-form__container') || 
+                         messageContainer.closest('footer.msg-messaging-form__footer') || 
+                         messageContainer.parentNode;
+    
+    if (targetElement) {
+        targetElement.insertBefore(buttonWrapper, messageContainer);
     }
+}
 
     createButton(config, messageContainer) {
         const btn = document.createElement('button');
